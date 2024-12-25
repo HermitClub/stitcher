@@ -1,0 +1,36 @@
+[gd_scene load_steps=8 format=3 uid="uid://qnx5la66re8c"]
+
+[ext_resource type="Script" path="res://terrain_generator.gd" id="1_tp3wd"]
+[ext_resource type="Shader" path="res://laboratory.gdshader" id="2_unagk"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_v5px1"]
+
+[sub_resource type="Sky" id="Sky_kqnpy"]
+sky_material = SubResource("ProceduralSkyMaterial_v5px1")
+
+[sub_resource type="Environment" id="Environment_py36c"]
+background_mode = 2
+sky = SubResource("Sky_kqnpy")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_rl7bx"]
+render_priority = 0
+shader = ExtResource("2_unagk")
+shader_parameter/water_color = Color(0, 0.8, 1, 0.6)
+shader_parameter/fresnel_color = Color(0.8, 0.9, 1, 0.8)
+shader_parameter/wave_speed = 0.1
+shader_parameter/wave_strength = 0.1
+shader_parameter/fresnel_power = 3.0
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_auf1c"]
+material = SubResource("ShaderMaterial_rl7bx")
+size = Vector2(800, 800)
+
+[node name="Node3D" type="Node3D"]
+script = ExtResource("1_tp3wd")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_py36c")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.503286)
+mesh = SubResource("PlaneMesh_auf1c")

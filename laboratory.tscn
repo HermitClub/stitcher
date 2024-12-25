@@ -1,0 +1,34 @@
+[gd_scene load_steps=7 format=3 uid="uid://cvcsjccip83uq"]
+
+[ext_resource type="Shader" path="res://laboratory.gdshader" id="1_l60wi"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_2wdrv"]
+
+[sub_resource type="Sky" id="Sky_hbjli"]
+sky_material = SubResource("ProceduralSkyMaterial_2wdrv")
+
+[sub_resource type="Environment" id="Environment_uxj3k"]
+background_mode = 2
+sky = SubResource("Sky_hbjli")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2kqpe"]
+render_priority = 0
+shader = ExtResource("1_l60wi")
+shader_parameter/water_color = Color(0, 0.8, 1, 0.6)
+shader_parameter/fresnel_color = Color(0.8, 0.9, 1, 0.8)
+shader_parameter/wave_speed = 0.1
+shader_parameter/wave_strength = 0.1
+shader_parameter/fresnel_power = 3.0
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_cblhx"]
+material = SubResource("ShaderMaterial_2kqpe")
+size = Vector2(800, 800)
+
+[node name="Node3D" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_uxj3k")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.503286)
+mesh = SubResource("PlaneMesh_cblhx")
