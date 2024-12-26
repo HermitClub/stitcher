@@ -1,122 +1,182 @@
-# stitcher_dock.gd
 @tool
 extends Control
 
-var edge_analyzer: Node3D = null
-var mesh_list: ItemList = null
-var stitch_button: Button = null
-var connection_range_slider: HSlider = null
-var selected_meshes: Array[Node] = []
-var debug_mode := true
-var ui_container: VBoxContainer = null
+var selected_meshes: Array[MeshInstance3D] = []
+var preview_visible := true
+var blend_distance := 1.0
+var smoothing_strength := 0.5
 
-func debug_print(message: String) -> void:
-	if debug_mode:
-		print("[StitcherDock] ", message)
+# UI Elements
+var mesh_list: ItemList
+var blend_distance_slider: HSlider
+var smoothing_slider: HSlider
+var stitch_button: Button
+var preview_button: Button
+var reset_button: Button
 
-func _init() -> void:
-	debug_print("Dock initializing")
+# Add to stitcher_dock.gd
 
-func _ready() -> void:
-	# Wait a frame to ensure proper initialization
-	await get_tree().process_frame
-	initialize_dock()
+var mesh_analyzer: MeshAnalyzer
+# Add to stitcher_dock.gd
+
+var mesh_stitcher: MeshStitcher
+
+func setup_stitcher() -> void:
+	mesh_stitcher = MeshStitcher.new()
+	add_child(mesh_stitcher)
+	mesh_stitcher.stitch_completed.connect(_on_stitch_completed)
 	
-	mesh_list = ItemList.new()  # Initialize the mesh list here
-	mesh_list.custom_minimum_size = Vector2(200, 150)
-
-func initialize_dock() -> void:
-	debug_print("Initializing dock")
-	
-	if ui_container:
-		debug_print("UI already initialized")
+func _on_stitch_pressed() -> void:
+	if selected_meshes.size() < 2:
 		return
 		
-	setup_ui()
-	setup_edge_analyzer()
-	debug_print("Dock initialization complete")
-
-func setup_ui() -> void:
-	debug_print("Setting up UI elements")
-	
-	ui_container = VBoxContainer.new()
-	ui_container.name = "UIContainer"
-	add_child(ui_container)
-	
-	# Add descriptive label
-	var description = Label.new()
-	description.text = "Select two meshes to stitch their edges"
-	ui_container.add_child(description)
-	
-	# Mesh list setup
-	mesh_list = ItemList.new()
-	mesh_list.custom_minimum_size = Vector2(200, 150)
-	mesh_list.select_mode = ItemList.SELECT_MULTI
-	ui_container.add_child(mesh_list)
-	
-	# Stitch button setup
-	stitch_button = Button.new()
-	stitch_button.text = "Stitch Selected"
-	stitch_button.pressed.connect(_on_stitch_pressed)
-	stitch_button.disabled = true
-	ui_container.add_child(stitch_button)
-	
-	# Clear visualization button
-	var clear_button = Button.new()
-	clear_button.text = "Clear Visualization"
-	clear_button.pressed.connect(func(): 
-		if edge_analyzer:
-			edge_analyzer.clear_debug_visualizations()
+	var new_mesh = mesh_stitcher.stitch_meshes(
+		mesh_analyzer.potential_connections,
+		blend_distance,
+		smoothing_strength
 	)
-	ui_container.add_child(clear_button)
 	
-	debug_print("UI setup complete")
-
-func setup_edge_analyzer() -> void:
-	debug_print("Setting up edge analyzer")
-	
-	if edge_analyzer:
-		edge_analyzer.queue_free()
+	if new_mesh:
+		# Add to scene
+		var scene_root = get_tree().get_edited_scene_root()
+		scene_root.add_child(new_mesh)
+		new_mesh.owner = scene_root
 		
-	var EdgeAnalyzer = load("res://addons/terrain_stitcher/edge_analyzer.gd")
-	edge_analyzer = EdgeAnalyzer.new()
-	add_child(edge_analyzer)
+		# Clear selection and reset
+		_on_reset_pressed()
+
+func _on_stitch_completed(new_mesh: MeshInstance3D) -> void:
+	print("Mesh stitching completed: ", new_mesh.name)
 	
-	debug_print("Edge analyzer setup complete")
+func _ready() -> void:
+	setup_ui()
+	setup_analyzer()
+	setup_stitcher()  # Add this line
+
+func setup_analyzer() -> void:
+	mesh_analyzer = MeshAnalyzer.new()
+	add_child(mesh_analyzer)
+	mesh_analyzer.connection_points_updated.connect(func(): 
+		print("Found %d potential connection points" % mesh_analyzer.potential_connections.size())
+	)
 
 func update_selection(meshes: Array) -> void:
-	debug_print("Updating selection with %d meshes" % meshes.size())
-	
-	if not mesh_list:
-		push_error("Mesh list not initialized")
-		return
-		
-	selected_meshes = meshes
-	mesh_list.clear()
-	
+	# Create a properly typed array
+	selected_meshes.clear()  # Clear our typed array
 	for mesh in meshes:
 		if mesh is MeshInstance3D:
-			mesh_list.add_item(mesh.name)
+			selected_meshes.append(mesh)
+			
+	# Update UI
+	mesh_list.clear()
+	for mesh in selected_meshes:
+		mesh_list.add_item(mesh.name)
 	
-	if stitch_button:
-		stitch_button.disabled = meshes.size() != 2
+	if selected_meshes.size() >= 2:
+		mesh_analyzer.analyze_meshes(selected_meshes)
+	else:
+		mesh_analyzer.clear_visualizations()
 	
-	if edge_analyzer:
-		if meshes.size() == 2:
-			edge_analyzer.clear_debug_visualizations()
-			edge_analyzer.visualize_potential_connections(meshes[0], meshes[1])
-		else:
-			edge_analyzer.clear_debug_visualizations()
+	update_ui_state()
+	
+func setup_ui() -> void:
+	# Main container
+	var main_container := VBoxContainer.new()
+	main_container.custom_minimum_size = Vector2(250, 0)
+	add_child(main_container)
+	
+	# Title
+	var title := Label.new()
+	title.text = "Terrain Stitcher"
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_constant_override("margin_bottom", 10)
+	main_container.add_child(title)
+	
+	# Selected Meshes Section
+	var mesh_section := VBoxContainer.new()
+	main_container.add_child(mesh_section)
+	
+	var mesh_label := Label.new()
+	mesh_label.text = "Selected Meshes"
+	mesh_section.add_child(mesh_label)
+	
+	mesh_list = ItemList.new()
+	mesh_list.custom_minimum_size = Vector2(0, 100)
+	mesh_list.select_mode = ItemList.SELECT_MULTI
+	mesh_section.add_child(mesh_list)
+	
+	# Blend Settings Section
+	add_slider_setting(main_container, "Blend Distance", 0.1, 5.0, blend_distance, 
+		func(value): blend_distance = value)
+	
+	add_slider_setting(main_container, "Smoothing Strength", 0.0, 1.0, smoothing_strength,
+		func(value): smoothing_strength = value)
+	
+	# Action Buttons
+	var button_container := VBoxContainer.new()
+	main_container.add_child(button_container)
+	
+	stitch_button = Button.new()
+	stitch_button.text = "Stitch Meshes"
+	stitch_button.pressed.connect(_on_stitch_pressed)
+	button_container.add_child(stitch_button)
+	
+	var horizontal_buttons := HBoxContainer.new()
+	button_container.add_child(horizontal_buttons)
+	
+	preview_button = Button.new()
+	preview_button.text = "Hide Preview"
+	preview_button.pressed.connect(_on_preview_toggled)
+	horizontal_buttons.add_child(preview_button)
+	
+	reset_button = Button.new()
+	reset_button.text = "Reset"
+	reset_button.pressed.connect(_on_reset_pressed)
+	horizontal_buttons.add_child(reset_button)
+	
+	update_ui_state()
 
-func _on_stitch_pressed() -> void:
-	debug_print("Stitch button pressed")
-	if not edge_analyzer:
-		push_error("Edge analyzer not initialized")
-		return
-		
-	if selected_meshes.size() != 2:
-		push_error("Need exactly 2 meshes selected for stitching")
-		return
-		
-	edge_analyzer.stitch_meshes(selected_meshes[0], selected_meshes[1])
-	debug_print("Stitch operation completed")
+func add_slider_setting(parent: Control, label_text: String, min_val: float, max_val: float, 
+	default_val: float, callback: Callable) -> void:
+	var container := VBoxContainer.new()
+	parent.add_child(container)
+	
+	var label := Label.new()
+	label.text = label_text
+	container.add_child(label)
+	
+	var slider_container := HBoxContainer.new()
+	container.add_child(slider_container)
+	
+	var slider := HSlider.new()
+	slider.min_value = min_val
+	slider.max_value = max_val
+	slider.value = default_val
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.value_changed.connect(callback)
+	slider_container.add_child(slider)
+	
+	var value_label := Label.new()
+	value_label.custom_minimum_size.x = 40
+	value_label.text = "%.1f" % default_val
+	slider.value_changed.connect(func(val): value_label.text = "%.1f" % val)
+	slider_container.add_child(value_label)
+
+func update_ui_state() -> void:
+	stitch_button.disabled = selected_meshes.size() < 2
+	preview_button.text = "Hide Preview" if preview_visible else "Show Preview"
+
+
+
+func _on_preview_toggled() -> void:
+	preview_visible = !preview_visible
+	update_ui_state()
+	# TODO: Implement preview visibility logic
+
+func _on_reset_pressed() -> void:
+	selected_meshes.clear()
+	blend_distance = 1.0
+	smoothing_strength = 0.5
+	preview_visible = true
+	update_ui_state()
+	# TODO: Implement reset logic

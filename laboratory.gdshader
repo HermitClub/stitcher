@@ -10,16 +10,16 @@ void fragment() {
     // Simple wave movement based on time
     vec2 time_offset = vec2(TIME * wave_speed);
     float wave = sin(UV.x * 10.0 + time_offset.x) * cos(UV.y * 10.0 + time_offset.y) * wave_strength;
-    
+
     // Calculate fresnel effect
     float fresnel = pow(1.0 - dot(NORMAL, VIEW), fresnel_power);
-    
+
     // Mix water color with fresnel effect
     vec4 final_color = mix(water_color, fresnel_color, fresnel);
-    
+
     // Apply wave displacement to alpha
     final_color.a = water_color.a * (1.0 + wave);
-    
+
     ALBEDO = final_color.rgb;
     ALPHA = final_color.a;
     METALLIC = 0.3;
