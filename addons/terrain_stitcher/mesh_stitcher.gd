@@ -88,90 +88,82 @@ func get_mesh_data(mesh_instance: MeshInstance3D) -> Dictionary:
 func smooth_connection_area(vertices: PackedVector3Array, colors: PackedColorArray,
 						  connections: Array[Dictionary], blend_distance: float, 
 						  smoothing_strength: float) -> void:
-	var blend_map = {}
+	print("\n=== Starting Smooth Connection Area ===")
+	print("Initial vertices: ", vertices.size())
+	print("Blend distance: ", blend_distance)
+	print("Smoothing strength: ", smoothing_strength)
 	
-	# First pass: Find all connection regions and calculate influence
+	var blend_map = {}
+	var stats = {
+		"total_original_height": 0.0,
+		"total_target_height": 0.0,
+		"points_processed": 0
+	}
+	
+	# First pass: analyze the seam to establish baseline heights
 	for connection in connections:
 		var center = (connection.point1 + connection.point2) / 2.0
-		var direction = (connection.point2 - connection.point1).normalized()
-		var perp_direction = Vector3(-direction.z, 0, direction.x)  # Perpendicular to connection line
+		print("\nConnection point:")
+		print("  Point1 height: %.3f" % connection.point1.y)
+		print("  Point2 height: %.3f" % connection.point2.y)
+		print("  Target height: %.3f" % center.y)
 		
-		# Extended blend radius for smoother transition
-		var extended_radius = blend_distance * 2.5
+		# Find base heights of both meshes near the seam
+		var mesh1_base = connection.point1.y
+		var mesh2_base = connection.point2.y
 		
-		# Calculate target height and color at connection
-		var color1 = colors[vertices.find(connection.point1)]
-		var color2 = colors[vertices.find(connection.point2)]
-		var target_color = color1.lerp(color2, 0.5)
-		var target_height = (connection.point1.y + connection.point2.y) / 2.0
-		
-		# Analyze each vertex for potential blending
+		# Calculate local height variations
 		for i in range(vertices.size()):
-			var vertex = vertices[i]
-			var to_vertex = vertex - center
+			var vertex_pos = vertices[i]
+			var dist_to_seam = vertex_pos.distance_to(center)
 			
-			# Calculate distance along and perpendicular to connection line
-			var along_distance = abs(to_vertex.dot(direction))
-			var perp_distance = abs(to_vertex.dot(perp_direction))
-			
-			# Only blend vertices within our extended radius
-			if along_distance <= extended_radius and perp_distance <= extended_radius:
-				# Calculate blend weight using smooth falloff
-				var radial_distance = sqrt(along_distance * along_distance + perp_distance * perp_distance)
-				var blend_weight = 1.0 - smooth_step(0.0, extended_radius, radial_distance)
-				blend_weight *= smoothing_strength
+			if dist_to_seam <= blend_distance:
+				stats.points_processed += 1
+				stats.total_original_height += vertex_pos.y
 				
-				# Apply additional falloff based on perpendicular distance
-				var perp_falloff = 1.0 - smooth_step(0.0, extended_radius * 0.7, perp_distance)
-				blend_weight *= perp_falloff
+				# Calculate sharper falloff
+				var sharp_falloff = pow(1.0 - (dist_to_seam / blend_distance), 2.0)
+				sharp_falloff *= smoothing_strength
 				
 				if !blend_map.has(i):
 					blend_map[i] = {
 						"weight": 0.0,
-						"target_height": 0.0,
-						"target_color": Color.TRANSPARENT,
-						"normal_influence": Vector3.ZERO
+						"target_base": 0.0,
+						"target_color": Color.TRANSPARENT
 					}
 				
 				var entry = blend_map[i]
-				entry.weight += blend_weight
-				entry.target_height += target_height * blend_weight
-				entry.target_color += target_color * blend_weight
-				
-				# Store normal influence for smoother transitions
-				var normal_influence = perp_direction * blend_weight
-				entry.normal_influence += normal_influence
+				entry.weight += sharp_falloff
+				entry.target_base += center.y * sharp_falloff
+				stats.total_target_height += center.y
+
+	print("\n=== Blend Statistics ===")
+	var avg_original = stats.total_original_height / stats.points_processed if stats.points_processed > 0 else 0
+	var avg_target = stats.total_target_height / stats.points_processed if stats.points_processed > 0 else 0
+	print("Points processed: ", stats.points_processed)
+	print("Average original height: %.3f" % avg_original)
+	print("Average target height: %.3f" % avg_target)
+	print("Height difference: %.3f" % (avg_target - avg_original))
 	
-	# Second pass: Apply blending with smooth transitions
+	# Second pass: apply blending while preserving local detail
+	var vertices_modified = 0
+	var total_height_change = 0.0
+	
 	for vertex_idx in blend_map:
 		var blend_data = blend_map[vertex_idx]
 		if blend_data.weight > 0:
-			var weight = clamp(blend_data.weight, 0.0, 1.0)
+			vertices_modified += 1
+			var old_height = vertices[vertex_idx].y
 			
-			# Apply height blending with easing
-			var target_height = blend_data.target_height / blend_data.weight
-			var height_delta = target_height - vertices[vertex_idx].y
-			vertices[vertex_idx].y += height_delta * ease(weight, 0.5)
+			# Calculate new height
+			var target_base = blend_data.target_base / blend_data.weight
+			vertices[vertex_idx].y = target_base
 			
-			# Smooth color transition
-			var target_color = blend_data.target_color / blend_data.weight
-			colors[vertex_idx] = colors[vertex_idx].lerp(target_color, ease(weight, 0.3))
-			
-			# Apply normal influence for smoother mesh flow
-			var normal_influence = blend_data.normal_influence / blend_data.weight
-			vertices[vertex_idx] += normal_influence * 0.1 * weight
-			
-			# Propagate changes to nearby vertices for continuity
-			var neighbor_radius = blend_distance * 0.8
-			for j in range(vertices.size()):
-				if j != vertex_idx:
-					var dist = vertices[j].distance_to(vertices[vertex_idx])
-					if dist <= neighbor_radius:
-						var fade = (1.0 - (dist / neighbor_radius)) * weight * 0.4
-						var height_interp = lerp(vertices[j].y, vertices[vertex_idx].y, fade)
-						vertices[j].y = height_interp
-						colors[j] = colors[j].lerp(colors[vertex_idx], fade * 0.7)
+			total_height_change += abs(vertices[vertex_idx].y - old_height)
 
+	print("\nFinal modifications:")
+	print("Vertices modified: ", vertices_modified)
+	print("Average height change: %.3f" % (total_height_change / vertices_modified if vertices_modified > 0 else 0))
 func ease(x: float, factor: float) -> float:
 	# Custom easing function for smoother transitions
 	return 1.0 - pow(1.0 - x, 2.0 + factor)
